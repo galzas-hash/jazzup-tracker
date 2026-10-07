@@ -36,7 +36,7 @@ export default function App() {
 }
 
 function Splash() {
-  return <div className="center"><div className="logo big">JazzUp<span>Tracker</span></div></div>
+  return <div className="center splash"><img className="login-logo" src="/logo.png" alt="Jazz Up!" /></div>
 }
 
 function Login() {
@@ -54,7 +54,8 @@ function Login() {
   return (
     <div className="center">
       <form className="card narrow" onSubmit={submit}>
-        <div className="logo big">JazzUp<span>Tracker</span></div>
+        <img className="login-logo" src="/logo.png" alt="Jazz Up!" />
+        <div className="login-sub">Lesson Tracker</div>
         <label>Email<input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
         <label>Password<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
         {err && <p className="error">{err}</p>}
@@ -119,7 +120,7 @@ function Tracker() {
   return (
     <div className="page">
       <header className="top">
-        <div className="logo">JazzUp<span>Tracker</span></div>
+        <Brand />
         <button className="link" onClick={() => supabase.auth.signOut()}>Sign out</button>
       </header>
 
@@ -496,5 +497,14 @@ function DateField({ label, value, onChange }) {
           onChange={(e) => e.target.value && onChange(e.target.value)} required aria-label={label} />
       </div>
     </label>
+  )
+}
+
+function Brand() {
+  return (
+    <div className="brand">
+      <img src="/mark.png" alt="" />
+      <div><b>JAZZ UP!</b><small>Lesson Tracker</small></div>
+    </div>
   )
 }
