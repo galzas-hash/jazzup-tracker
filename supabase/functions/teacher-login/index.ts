@@ -1,5 +1,6 @@
 // Manager-only: create or reset a teacher's login and return a new password.
-// Body: { action: "set_login", teacher_id, email }  |  { action: "remove_login", teacher_id }
+// Teachers: { action: "set_login", teacher_id, email } | { action: "remove_login", teacher_id }
+// Managers: { action: "list_managers" } | { action: "add_manager" | "reset_manager" | "remove_manager", email }
 import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const cors = {
@@ -29,6 +30,46 @@ Deno.serve(async (req) => {
 
     const admin = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
     const { action, teacher_id, email: rawEmail } = await req.json()
+    const cleanEmail = String(rawEmail || '').trim().toLowerCase()
+
+    // ---- managers ----
+    if (action === 'list_managers') {
+      const { data } = await admin.from('managers').select('email').order('email')
+      return json({ managers: (data || []).map((m) => m.email.toLowerCase()) })
+    }
+    if (action === 'add_manager' || action === 'reset_manager') {
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) return json({ error: 'Please enter a valid email.' }, 400)
+      const { data: asTeacher } = await admin.from('teachers').select('name').eq('email', cleanEmail).maybeSingle()
+      if (asTeacher) return json({ error: `This email is ${asTeacher.name}'s teacher login. Remove it there first, or use a different email.` }, 400)
+      const { data: existingMgr } = await admin.from('managers').select('email').ilike('email', cleanEmail).maybeSingle()
+      if (action === 'add_manager' && existingMgr) return json({ error: 'This email is already a manager.' }, 400)
+      if (action === 'reset_manager' && !existingMgr) return json({ error: 'Not a manager.' }, 404)
+      const password = makePassword()
+      const { error } = await admin.auth.admin.createUser({ email: cleanEmail, password, email_confirm: true })
+      if (error) {
+        const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })
+        const existing = list?.users.find((u) => u.email?.toLowerCase() === cleanEmail)
+        if (!existing) return json({ error: error.message }, 400)
+        const { error: e2 } = await admin.auth.admin.updateUserById(existing.id, { password })
+        if (e2) return json({ error: e2.message }, 400)
+      }
+      if (!existingMgr) {
+        const { error: e3 } = await admin.from('managers').insert({ email: cleanEmail })
+        if (e3) return json({ error: e3.message }, 400)
+      }
+      return json({ ok: true, email: cleanEmail, password })
+    }
+    if (action === 'remove_manager') {
+      const { data: { user } } = await caller.auth.getUser()
+      if (user?.email?.toLowerCase() === cleanEmail) return json({ error: "You can't remove yourself." }, 400)
+      await admin.from('managers').delete().ilike('email', cleanEmail)
+      const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })
+      const existing = list?.users.find((u) => u.email?.toLowerCase() === cleanEmail)
+      if (existing) await admin.auth.admin.deleteUser(existing.id)
+      return json({ ok: true })
+    }
+
+    // ---- teachers ----
 
     const { data: teacher, error: tErr } = await admin.from('teachers').select('*').eq('id', teacher_id).single()
     if (tErr || !teacher) return json({ error: 'Teacher not found.' }, 404)

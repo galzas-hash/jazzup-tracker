@@ -133,7 +133,7 @@ function Tracker() {
       <header className="top">
         <Brand />
         <div className="top-links">
-          <button className="link" onClick={() => setShowTeachers(true)} disabled={!data}>Teachers</button>
+          <button className="link" onClick={() => setShowTeachers(true)} disabled={!data}>Team</button>
           <button className="link" onClick={() => supabase.auth.signOut()}>Sign out</button>
         </div>
       </header>

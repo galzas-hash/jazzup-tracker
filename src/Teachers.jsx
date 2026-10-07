@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from './supabase'
 import { Sheet, useToast } from './ui'
 
@@ -49,7 +49,8 @@ export default function Teachers({ teachers, packages, onBack, reload }) {
       <header className="top">
         <button className="link" onClick={onBack}>← All students</button>
       </header>
-      <h1 className="page-title">Teachers</h1>
+      <h1 className="page-title">Team</h1>
+      <h3 className="section">Teachers</h3>
       <p className="muted small">Teachers with a login can open the app, see only their own students, and log lessons. They can't see or add payments.</p>
 
       <button className="btn primary full" onClick={() => setSheet({ type: 'add' })}>+ Add teacher</button>
@@ -81,7 +82,9 @@ export default function Teachers({ teachers, packages, onBack, reload }) {
             else { setSheet(null); flash(res.msg || 'Saved') }
           }} />
       )}
-      {sheet?.type === 'creds' && <Credentials {...sheet} onClose={() => setSheet(null)} flash={flash} />}
+      <Managers flash={flash} />
+
+      {sheet?.type === 'creds' && <Credentials {...sheet} kind="teacher" onClose={() => setSheet(null)} flash={flash} />}
       {toastNode}
     </div>
   )
@@ -176,33 +179,147 @@ function TeacherForm({ teacher, studentCount = 0, onClose, onSaved }) {
   )
 }
 
-function Credentials({ name, email, password, isNew, onClose, flash }) {
-  const first = name.split(' ')[0]
-  const text = `Hi ${first}! ${isNew ? "Here's your login for the JazzUp Lesson Tracker" : 'Your new JazzUp Lesson Tracker password'} 🎵
+function Credentials({ name, email, password, isNew, kind = 'teacher', onClose, flash }) {
+  const first = (name || '').trim().split(' ')[0]
+  const url = window.location.origin
+  const text = kind === 'manager' && isNew
+    ? `Hi${first ? ' ' + first : ''}! 🎵
 
-${window.location.origin}
+Your JazzUp Lesson Tracker is ready — every student's lessons and payments in one place.
+
+${url}
 Email: ${email}
 Password: ${password}
 
-Tip: open the link on your phone and choose "Add to Home Screen".`
+✅ Tap "Lesson today" after each lesson
+🔴 Red = time to pay · 🟠 Orange = 1 lesson left
+💬 "Send to parent" writes a LINE message with all the lesson dates
+👩‍🏫 Add your teachers so they can log their own lessons
+
+Tip: open the link on your phone and choose "Add to Home Screen" — it'll sit there with the JazzUp logo.
+
+Enjoy! 🎶`
+    : `Hi${first ? ' ' + first : ''}! ${isNew ? "Here's your login for the JazzUp Lesson Tracker" : 'Your new JazzUp Lesson Tracker password'} 🎵
+
+${url}
+Email: ${email}
+Password: ${password}
+${isNew ? '\nTip: open the link on your phone and choose "Add to Home Screen".' : ''}`
   const enc = encodeURIComponent(text)
   const copy = async () => {
     try { await navigator.clipboard.writeText(text); flash('Copied') } catch { flash('Could not copy — select the text manually') }
   }
   return (
-    <Sheet title={isNew ? 'Login created' : 'New password'} onClose={onClose}>
+    <Sheet title={isNew ? (kind === 'manager' ? 'Invite ready 🎉' : 'Login created') : 'New password'} onClose={onClose}>
       <div className="creds">
         <div><small>Email</small><b>{email}</b></div>
         <div><small>Password</small><b className="mono">{password}</b></div>
       </div>
-      <p className="muted small">Send this to {first} now — the password won't be shown again. You can always make a new one.</p>
-      <textarea rows={8} readOnly value={text} />
+      <p className="muted small">Send this to {first || 'them'} now — the password won't be shown again. You can always make a new one.</p>
+      <textarea rows={kind === 'manager' && isNew ? 12 : 8} readOnly value={text} />
       <div className="share">
         <a className="btn line" href={`https://line.me/R/share?text=${enc}`} target="_blank" rel="noreferrer">LINE</a>
         <a className="btn wa" href={`https://wa.me/?text=${enc}`} target="_blank" rel="noreferrer">WhatsApp</a>
         <button className="btn" onClick={copy}>Copy</button>
         <button className="btn" onClick={onClose}>Done</button>
       </div>
+    </Sheet>
+  )
+}
+
+/* ---------------- managers ---------------- */
+
+function Managers({ flash }) {
+  const [list, setList] = useState(null)
+  const [me, setMe] = useState('')
+  const [sheet, setSheet] = useState(null) // { type: 'invite' } | { type: 'manage', email } | { type: 'creds', ... }
+
+  const load = async () => {
+    const res = await callLogin({ action: 'list_managers' })
+    setList(res.error ? [] : res.managers)
+  }
+  useEffect(() => {
+    load()
+    supabase.auth.getSession().then(({ data }) => setMe((data.session?.user?.email || '').toLowerCase()))
+  }, [])
+
+  return (
+    <>
+      <h3 className="section">Managers</h3>
+      <p className="muted small">Managers see everything: all students, payments and teachers.</p>
+      {list === null ? <p className="muted small">Loading…</p> : (
+        <ul className="list">
+          {list.map((email) => (
+            <li key={email}>
+              <button className="row teacher-row" onClick={() => email !== me && setSheet({ type: 'manage', email })} disabled={email === me}>
+                <div className="row-main">
+                  <div className="name">{email}</div>
+                  <div className="sub">{email === me ? 'You' : 'Manager'}</div>
+                </div>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button className="btn full" style={{ marginTop: 10 }} onClick={() => setSheet({ type: 'invite' })}>+ Invite a manager</button>
+
+      {sheet?.type === 'invite' && <InviteManager onClose={() => setSheet(null)} onDone={(res) => { load(); setSheet({ type: 'creds', ...res }) }} />}
+      {sheet?.type === 'manage' && <ManageManager email={sheet.email} onClose={() => setSheet(null)}
+        onDone={(res) => { load(); if (res.password) setSheet({ type: 'creds', ...res }); else { setSheet(null); flash(res.msg) } }} />}
+      {sheet?.type === 'creds' && <Credentials {...sheet} kind="manager" onClose={() => setSheet(null)} flash={flash} />}
+    </>
+  )
+}
+
+function InviteManager({ onClose, onDone }) {
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const save = async (e) => {
+    e.preventDefault()
+    setBusy(true); setErr('')
+    const res = await callLogin({ action: 'add_manager', email })
+    setBusy(false)
+    if (res.error) return setErr(res.error)
+    onDone({ name, email: res.email, password: res.password, isNew: true })
+  }
+  return (
+    <Sheet title="Invite a manager" onClose={onClose}>
+      <form onSubmit={save}>
+        <label>Their name <span className="opt">(for the greeting)</span><input value={name} onChange={(e) => setName(e.target.value)} autoFocus /></label>
+        <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+        <p className="muted small">A login is created right away and you'll get a ready-to-send LINE/WhatsApp invite.</p>
+        {err && <p className="error">{err}</p>}
+        <button className="btn primary full" disabled={busy}>{busy ? 'Creating…' : 'Create invite'}</button>
+      </form>
+    </Sheet>
+  )
+}
+
+function ManageManager({ email, onClose, onDone }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const reset = async () => {
+    setBusy(true); setErr('')
+    const res = await callLogin({ action: 'reset_manager', email })
+    setBusy(false)
+    if (res.error) return setErr(res.error)
+    onDone({ email: res.email, password: res.password, isNew: false })
+  }
+  const remove = async () => {
+    if (!confirm(`Remove ${email} as a manager? Their login will stop working.`)) return
+    setBusy(true); setErr('')
+    const res = await callLogin({ action: 'remove_manager', email })
+    setBusy(false)
+    if (res.error) return setErr(res.error)
+    onDone({ msg: 'Manager removed' })
+  }
+  return (
+    <Sheet title={email} onClose={onClose}>
+      {err && <p className="error">{err}</p>}
+      <button className="btn full" disabled={busy} onClick={reset}>New password</button>
+      <button className="btn danger full" disabled={busy} onClick={remove}>Remove manager</button>
     </Sheet>
   )
 }
