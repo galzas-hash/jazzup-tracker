@@ -50,7 +50,7 @@ Deno.serve(async (req) => {
         const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })
         const existing = list?.users.find((u) => u.email?.toLowerCase() === cleanEmail)
         if (!existing) return json({ error: error.message }, 400)
-        const { error: e2 } = await admin.auth.admin.updateUserById(existing.id, { password })
+        const { error: e2 } = await admin.auth.admin.updateUserById(existing.id, { password, email_confirm: true })
         if (e2) return json({ error: e2.message }, 400)
       }
       if (!existingMgr) {
@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
     }
 
     if (userId) {
-      const { error } = await admin.auth.admin.updateUserById(userId, { password })
+      const { error } = await admin.auth.admin.updateUserById(userId, { password, email_confirm: true })
       if (error) return json({ error: error.message }, 400)
     } else {
       const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true })
@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
         const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })
         const existing = list?.users.find((u) => u.email?.toLowerCase() === email)
         if (!existing) return json({ error: error.message }, 400)
-        await admin.auth.admin.updateUserById(existing.id, { password })
+        await admin.auth.admin.updateUserById(existing.id, { password, email_confirm: true })
         userId = existing.id
       } else {
         userId = data.user.id
