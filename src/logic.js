@@ -8,17 +8,12 @@ export function todayISO() {
   return new Date(d.getTime() - off * 60000).toISOString().slice(0, 10)
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
+// All dates shown as dd/mm/yy
 export function fmtDate(iso) {
-  const [, m, d] = iso.split('-').map(Number)
-  return `${d} ${MONTHS[m - 1]}`
+  const [y, m, d] = iso.split('-')
+  return `${d}/${m}/${y.slice(2)}`
 }
-
-export function fmtDateLong(iso) {
-  const [y, m, d] = iso.split('-').map(Number)
-  return `${d} ${MONTHS[m - 1]} ${y}`
-}
+export const fmtDateLong = fmtDate
 
 const byDate = (key) => (a, b) =>
   a[key] === b[key] ? (a.created_at || '').localeCompare(b.created_at || '') : a[key].localeCompare(b[key])

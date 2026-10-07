@@ -87,7 +87,12 @@ function Tracker() {
     setData({ students: st.data, packages: pk.data, payments: py.data, lessons: ls.data })
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    const onVisible = () => document.visibilityState === 'visible' && load()
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [load])
 
   const rows = useMemo(() => {
     if (!data) return []
@@ -257,7 +262,7 @@ function PlanPicker({ plan, setPlan, paidOn, setPaidOn }) {
           </button>
         ))}
       </div>
-      <label>Payment date<input type="date" value={paidOn} onChange={(e) => setPaidOn(e.target.value)} required /></label>
+      <DateField label="Payment date" value={paidOn} onChange={setPaidOn} />
     </>
   )
 }
@@ -274,6 +279,11 @@ function PackageView({ row, students, onBack, reload }) {
   const [busy, setBusy] = useState(false)
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2200) }
+  const openSheet = (name) => {
+    if (name === 'lesson') setLessonDate(todayISO())
+    if (name === 'payment') setPaidOn(todayISO())
+    setSheet(name)
+  }
 
   const logLesson = async (date) => {
     setBusy(true)
@@ -324,14 +334,14 @@ function PackageView({ row, students, onBack, reload }) {
       </section>
 
       <div className="actions">
-        <button className="btn primary big" disabled={busy} onClick={() => (loggedToday ? setSheet('lesson') : logLesson(todayISO()))}>
+        <button className="btn primary big" disabled={busy} onClick={() => (loggedToday ? openSheet('lesson') : logLesson(todayISO()))}>
           ✓ Lesson today
         </button>
-        <button className="btn" onClick={() => setSheet('lesson')}>Other date</button>
+        <button className="btn" onClick={() => openSheet('lesson')}>Other date</button>
       </div>
       {loggedToday && <p className="muted small center-text">A lesson is already logged for today — pick a date to add another.</p>}
       <div className="actions two">
-        <button className="btn" onClick={() => setSheet('payment')}>+ Payment</button>
+        <button className="btn" onClick={() => openSheet('payment')}>+ Payment</button>
         <button className="btn" onClick={() => setSheet('export')}>Send to parent</button>
       </div>
 
@@ -358,7 +368,7 @@ function PackageView({ row, students, onBack, reload }) {
       {sheet === 'lesson' && (
         <Sheet title="Log a lesson" onClose={() => setSheet(null)}>
           <form onSubmit={(e) => { e.preventDefault(); logLesson(lessonDate) }}>
-            <label>Lesson date<input type="date" value={lessonDate} onChange={(e) => setLessonDate(e.target.value)} required /></label>
+            <DateField label="Lesson date" value={lessonDate} onChange={setLessonDate} />
             <button className="btn primary full" disabled={busy}>Log lesson</button>
           </form>
         </Sheet>
@@ -471,5 +481,20 @@ function Sheet({ title, onClose, children }) {
         {children}
       </div>
     </div>
+  )
+}
+
+// Shows the date as dd/mm/yy; tapping opens the phone's native calendar.
+function DateField({ label, value, onChange }) {
+  const open = (e) => { try { e.currentTarget.showPicker?.() } catch { /* not supported */ } }
+  return (
+    <label>{label}
+      <div className="datefield">
+        <span>{fmtDate(value)}</span>
+        <span className="cal" aria-hidden>📅</span>
+        <input type="date" value={value} max="2099-12-31" onClick={open}
+          onChange={(e) => e.target.value && onChange(e.target.value)} required aria-label={label} />
+      </div>
+    </label>
   )
 }
