@@ -184,3 +184,27 @@ button.lesson:active, button.group-head:active { background: #fff8d6; }
 .hint { text-transform: none; letter-spacing: 0; font-weight: 500; }
 .toast { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
 .toast .undo { background: var(--yellow); color: var(--ink); border: 0; border-radius: 8px; padding: 6px 12px; font-weight: 700; cursor: pointer; }
+
+/* teachers */
+.top-links { display: flex; gap: 16px; }
+.chips { display: flex; gap: 6px; overflow-x: auto; margin: -2px -16px 12px; padding: 2px 16px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chips button { flex: none; border: 1.5px solid var(--line); background: #fff; border-radius: 999px; padding: 7px 14px; font-weight: 600; font-size: 14px; cursor: pointer; color: var(--ink-2); }
+.chips button.on { background: var(--ink); border-color: var(--ink); color: var(--yellow); }
+.page-title { font-family: var(--display); font-weight: 900; font-size: 28px; margin: 4px 0 4px; }
+.tcount { text-align: center; min-width: 70px; }
+.tcount b { display: block; font-size: 22px; line-height: 1.1; }
+.tcount small { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--ink-2); }
+.teacher-row { border-left-color: var(--yellow); }
+.list.dim .row { opacity: .6; }
+.opt { font-weight: 400; color: var(--ink-3); }
+.creds { background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 12px 14px; display: grid; gap: 8px; margin-bottom: 10px; }
+.creds small { display: block; font-size: 12px; color: var(--ink-2); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+.creds b { font-size: 18px; word-break: break-all; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .5px; }
+.hello { display: flex; justify-content: space-between; align-items: baseline; background: var(--yellow); border: 2px solid var(--ink); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 14px; }
+.hello b { font-family: var(--display); font-weight: 900; font-size: 20px; }
+.hello span { font-size: 14px; font-weight: 600; }
+.done { margin-left: 8px; font-size: 12px; font-weight: 700; color: var(--ok); background: var(--ok-bg); padding: 2px 7px; border-radius: 999px; vertical-align: middle; }
+.notice { background: var(--red-bg); color: var(--red); border-radius: 12px; padding: 10px 14px; font-size: 14px; font-weight: 600; margin: -4px 0 12px; }
+.by { color: var(--ink-3); font-size: 13px; }

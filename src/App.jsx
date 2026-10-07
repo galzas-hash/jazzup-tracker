@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { supabase } from './supabase'
 import { PLANS, todayISO, fmtDate, fmtDateLong, summarize, status, exportText } from './logic'
+import { Sheet, DateField, Balance, Dots, LessonItem, Brand, useToast } from './ui'
+import TeacherApp from './TeacherApp'
+import Teachers, { TeacherSelect } from './Teachers'
 
 const INSTRUMENTS = ['Piano', 'Guitar', 'Drums', 'Violin', 'Vocals', 'Bass', 'Ukulele', 'Saxophone']
 
 export default function App() {
   const [session, setSession] = useState(undefined)
-  const [isManager, setIsManager] = useState(null)
+  const [role, setRole] = useState(undefined) // 'manager' | 'teacher' | null
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session))
@@ -15,19 +18,20 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!session) return setIsManager(null)
-    supabase.rpc('is_manager').then(({ data }) => setIsManager(!!data))
-  }, [session])
+    if (!session) return setRole(undefined)
+    supabase.rpc('my_role').then(({ data }) => setRole(data ?? null))
+  }, [session?.user?.id])
 
   if (session === undefined) return <Splash />
   if (!session) return <Login />
-  if (isManager === null) return <Splash />
-  if (!isManager)
+  if (role === undefined) return <Splash />
+  if (role === 'teacher') return <TeacherApp />
+  if (role !== 'manager')
     return (
       <div className="center">
         <div className="card narrow">
           <h2>No access</h2>
-          <p className="muted">{session.user.email} isn't set up as a manager.</p>
+          <p className="muted">{session.user.email} doesn't have access. Ask the manager to check your login.</p>
           <button className="btn" onClick={() => supabase.auth.signOut()}>Sign out</button>
         </div>
       </div>
@@ -74,18 +78,21 @@ function Tracker() {
   const [adding, setAdding] = useState(false)
   const [q, setQ] = useState('')
   const [showArchived, setShowArchived] = useState(false)
+  const [teacherFilter, setTeacherFilter] = useState('all')
+  const [showTeachers, setShowTeachers] = useState(false)
 
   const load = useCallback(async () => {
-    const [st, pk, py, ls] = await Promise.all([
+    const [st, pk, py, ls, tc] = await Promise.all([
       supabase.from('students').select('*'),
       supabase.from('packages').select('*'),
       supabase.from('payments').select('*'),
       supabase.from('lessons').select('*'),
+      supabase.from('teachers').select('*').order('name'),
     ])
-    const err = st.error || pk.error || py.error || ls.error
+    const err = st.error || pk.error || py.error || ls.error || tc.error
     if (err) return setError(err.message)
     setError('')
-    setData({ students: st.data, packages: pk.data, payments: py.data, lessons: ls.data })
+    setData({ students: st.data, packages: pk.data, payments: py.data, lessons: ls.data, teachers: tc.data })
   }, [])
 
   useEffect(() => {
@@ -98,30 +105,37 @@ function Tracker() {
   const rows = useMemo(() => {
     if (!data) return []
     const sMap = Object.fromEntries(data.students.map((s) => [s.id, s]))
+    const tMap = Object.fromEntries(data.teachers.map((t) => [t.id, t]))
     return data.packages.map((p) => {
       const payments = data.payments.filter((x) => x.package_id === p.id)
       const lessons = data.lessons.filter((x) => x.package_id === p.id)
       const sum = summarize(payments, lessons)
-      return { pkg: p, student: sMap[p.student_id], payments, lessons, sum, st: status(sum.balance, payments.length > 0) }
+      return { pkg: p, student: sMap[p.student_id], teacher: tMap[p.teacher_id], payments, lessons, sum, st: status(sum.balance, payments.length > 0) }
     })
   }, [data])
 
   const rank = { red: 0, amber: 1, ok: 2 }
   const visible = rows
     .filter((r) => r.student && r.pkg.archived === showArchived)
-    .filter((r) => !q || `${r.student.name} ${r.pkg.instrument}`.toLowerCase().includes(q.toLowerCase()))
+    .filter((r) => teacherFilter === 'all' || (teacherFilter === 'none' ? !r.pkg.teacher_id : r.pkg.teacher_id === teacherFilter))
+    .filter((r) => !q || `${r.student.name} ${r.pkg.instrument} ${r.teacher?.name || ''}`.toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => rank[a.st] - rank[b.st] || a.sum.balance - b.sum.balance || a.student.name.localeCompare(b.student.name))
 
   const counts = rows.filter((r) => !r.pkg.archived).reduce((c, r) => ({ ...c, [r.st]: (c[r.st] || 0) + 1 }), {})
   const open = rows.find((r) => r.pkg.id === openId)
 
-  if (open) return <PackageView row={open} students={data.students} onBack={() => setOpenId(null)} reload={load} />
+  if (showTeachers) return <Teachers teachers={data.teachers} packages={data.packages} onBack={() => setShowTeachers(false)} reload={load} />
+  if (open) return <PackageView row={open} students={data.students} teachers={data.teachers} onBack={() => setOpenId(null)} reload={load} />
+  const activeTeachers = data ? data.teachers.filter((t) => t.active) : []
 
   return (
     <div className="page">
       <header className="top">
         <Brand />
-        <button className="link" onClick={() => supabase.auth.signOut()}>Sign out</button>
+        <div className="top-links">
+          <button className="link" onClick={() => setShowTeachers(true)} disabled={!data}>Teachers</button>
+          <button className="link" onClick={() => supabase.auth.signOut()}>Sign out</button>
+        </div>
       </header>
 
       {error && <p className="error">{error}</p>}
@@ -135,9 +149,17 @@ function Tracker() {
       )}
 
       <div className="toolbar">
-        <input className="search" placeholder="Search student or instrument" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="search" placeholder="Search student, instrument, teacher" value={q} onChange={(e) => setQ(e.target.value)} />
         <button className="btn primary" onClick={() => setAdding(true)}>+ Student</button>
       </div>
+
+      {activeTeachers.length > 0 && (
+        <div className="chips">
+          {[{ id: 'all', name: 'All' }, ...activeTeachers, { id: 'none', name: 'No teacher' }].map((t) => (
+            <button key={t.id} className={teacherFilter === t.id ? 'on' : ''} onClick={() => setTeacherFilter(t.id)}>{t.name}</button>
+          ))}
+        </div>
+      )}
 
       {!data ? <p className="muted pad">Loading…</p> : visible.length === 0 ? (
         <div className="empty">
@@ -150,7 +172,7 @@ function Tracker() {
               <button className={`row ${r.st}`} onClick={() => setOpenId(r.pkg.id)}>
                 <div className="row-main">
                   <div className="name">{r.student.name}</div>
-                  <div className="sub">{r.pkg.instrument}{r.lessons.length ? ` · last lesson ${fmtDate(lastLesson(r.lessons))}` : ''}</div>
+                  <div className="sub">{r.pkg.instrument}{r.teacher ? ` · ${r.teacher.name}` : ''}{r.lessons.length ? ` · last lesson ${fmtDate(lastLesson(r.lessons))}` : ''}</div>
                 </div>
                 <Balance sum={r.sum} hasPayments={r.payments.length > 0} />
               </button>
@@ -163,32 +185,20 @@ function Tracker() {
         {showArchived ? '← Back to active students' : 'Show archived'}
       </button>
 
-      {adding && <AddStudent students={data?.students || []} onClose={() => setAdding(false)} onDone={(id) => { setAdding(false); load().then(() => setOpenId(id)) }} />}
+      {adding && <AddStudent students={data?.students || []} teachers={activeTeachers} onClose={() => setAdding(false)} onDone={(id) => { setAdding(false); load().then(() => setOpenId(id)) }} />}
     </div>
   )
 }
 
 const lastLesson = (lessons) => lessons.reduce((m, l) => (l.lesson_date > m ? l.lesson_date : m), '')
 
-function Balance({ sum, hasPayments }) {
-  if (!hasPayments && sum.used === 0) return <div className="bal red"><b>—</b><small>no payment</small></div>
-  const b = sum.balance
-  return (
-    <div className={`bal ${status(b, hasPayments)}`}>
-      <b>{b < 0 ? `−${-b}` : b}</b>
-      <small>{b < 0 ? 'owed' : b === 1 ? 'lesson left' : 'lessons left'}</small>
-    </div>
-  )
-}
-
-/* ---------------- add student ---------------- */
-
-function AddStudent({ students, onClose, onDone, presetStudent }) {
+function AddStudent({ students, teachers = [], onClose, onDone, presetStudent }) {
   const [mode, setMode] = useState(presetStudent ? 'existing' : 'new')
   const [name, setName] = useState('')
   const [studentId, setStudentId] = useState(presetStudent?.id || '')
   const [instrument, setInstrument] = useState('Piano')
   const [other, setOther] = useState('')
+  const [teacherId, setTeacherId] = useState('')
   const [plan, setPlan] = useState(4)
   const [paidOn, setPaidOn] = useState(todayISO())
   const [withPayment, setWithPayment] = useState(true)
@@ -206,7 +216,7 @@ function AddStudent({ students, onClose, onDone, presetStudent }) {
       if (error) { setBusy(false); return setErr(error.message) }
       sid = data.id
     }
-    const { data: pkg, error: e2 } = await supabase.from('packages').insert({ student_id: sid, instrument: inst }).select().single()
+    const { data: pkg, error: e2 } = await supabase.from('packages').insert({ student_id: sid, instrument: inst, teacher_id: teacherId || null }).select().single()
     if (e2) { setBusy(false); return setErr(e2.message) }
     if (withPayment) {
       const { error: e3 } = await supabase.from('payments').insert({ package_id: pkg.id, plan_lessons: plan, paid_on: paidOn })
@@ -241,6 +251,7 @@ function AddStudent({ students, onClose, onDone, presetStudent }) {
           </select>
         </label>
         {instrument === 'Other' && <label>Which instrument?<input value={other} onChange={(e) => setOther(e.target.value)} required /></label>}
+        <TeacherSelect teachers={teachers} value={teacherId} onChange={setTeacherId} />
 
         <label className="check"><input type="checkbox" checked={withPayment} onChange={(e) => setWithPayment(e.target.checked)} /> Record first payment now</label>
         {withPayment && <PlanPicker plan={plan} setPlan={setPlan} paidOn={paidOn} setPaidOn={setPaidOn} />}
@@ -270,33 +281,17 @@ function PlanPicker({ plan, setPlan, paidOn, setPaidOn }) {
 
 /* ---------------- package detail ---------------- */
 
-function PackageView({ row, students, onBack, reload }) {
-  const { pkg, student, payments, lessons, sum } = row
+function PackageView({ row, students, teachers, onBack, reload }) {
+  const { pkg, student, teacher, payments, lessons, sum } = row
+  const byName = Object.fromEntries(teachers.filter((t) => t.user_id).map((t) => [t.user_id, t.name]))
   const [sheet, setSheet] = useState(null) // 'lesson' | 'payment' | 'export' | 'edit' | 'instrument' | 'editLesson' | 'editPayment'
-  const [toast, setToast] = useState(null) // { msg, undo }
-  const toastTimer = useRef(null)
   const [lessonDate, setLessonDate] = useState(todayISO())
   const [plan, setPlan] = useState(4)
   const [paidOn, setPaidOn] = useState(todayISO())
   const [editing, setEditing] = useState(null) // the lesson or payment being edited
   const [busy, setBusy] = useState(false)
 
-  const flash = (msg, undo) => {
-    clearTimeout(toastTimer.current)
-    setToast({ msg, undo })
-    toastTimer.current = setTimeout(() => setToast(null), undo ? 7000 : 2200)
-  }
-  useEffect(() => () => clearTimeout(toastTimer.current), [])
-
-  const runUndo = async () => {
-    const fn = toast?.undo
-    setToast(null)
-    if (!fn) return
-    const { error } = await fn()
-    if (error) return flash(error.message)
-    await reload()
-    flash('Undone')
-  }
+  const { flash, toastNode } = useToast(reload)
 
   const openSheet = (name) => {
     if (name === 'lesson') setLessonDate(todayISO())
@@ -361,7 +356,7 @@ function PackageView({ row, students, onBack, reload }) {
     await reload()
     const { id, package_id, created_at } = item
     const restore = table === 'lessons'
-      ? { id, package_id, created_at, lesson_date: item.lesson_date }
+      ? { id, package_id, created_at, lesson_date: item.lesson_date, logged_by: item.logged_by }
       : { id, package_id, created_at, plan_lessons: item.plan_lessons, paid_on: item.paid_on }
     flash(`${what} deleted`, () => supabase.from(table).insert(restore))
   }
@@ -381,7 +376,7 @@ function PackageView({ row, students, onBack, reload }) {
       <section className={`hero ${st}`}>
         <div>
           <h1>{student.name}</h1>
-          <div className="sub">{pkg.instrument}{pkg.archived ? ' · archived' : ''}</div>
+          <div className="sub">{pkg.instrument}{teacher ? ` · ${teacher.name}` : ''}{pkg.archived ? ' · archived' : ''}</div>
         </div>
         <Balance sum={sum} hasPayments={payments.length > 0} />
       </section>
@@ -402,7 +397,7 @@ function PackageView({ row, students, onBack, reload }) {
       {sum.owed.length > 0 && (
         <div className="group owed">
           <div className="group-head static"><b>Not paid yet</b><span>{sum.owed.length} owed</span></div>
-          {[...sum.owed].reverse().map((l) => <LessonItem key={l.id} l={l} onEdit={() => editLesson(l)} />)}
+          {[...sum.owed].reverse().map((l) => <LessonItem key={l.id} l={l} by={byName[l.logged_by]} onEdit={() => editLesson(l)} />)}
         </div>
       )}
       {groups.length === 0 && sum.owed.length === 0 && <p className="muted">No payments or lessons yet.</p>}
@@ -414,7 +409,7 @@ function PackageView({ row, students, onBack, reload }) {
             <span className="pen" aria-hidden>✎</span>
           </button>
           <Dots used={g.lessons.length} total={g.payment.plan_lessons} />
-          {[...g.lessons].reverse().map((l) => <LessonItem key={l.id} l={l} onEdit={() => editLesson(l)} />)}
+          {[...g.lessons].reverse().map((l) => <LessonItem key={l.id} l={l} by={byName[l.logged_by]} onEdit={() => editLesson(l)} />)}
         </div>
       ))}
 
@@ -454,29 +449,11 @@ function PackageView({ row, students, onBack, reload }) {
         </Sheet>
       )}
       {sheet === 'export' && <ExportSheet student={student} pkg={pkg} payments={payments} lessons={lessons} onClose={() => setSheet(null)} flash={flash} />}
-      {sheet === 'edit' && <EditSheet student={student} pkg={pkg} onClose={() => setSheet(null)} reload={reload} onDeleted={onBack} onAddInstrument={() => setSheet('instrument')} />}
-      {sheet === 'instrument' && <AddStudent students={students} presetStudent={student} onClose={() => setSheet(null)} onDone={() => { setSheet(null); reload(); flash('Instrument added — find it on the main list') }} />}
+      {sheet === 'edit' && <EditSheet student={student} pkg={pkg} teachers={teachers} onClose={() => setSheet(null)} reload={reload} onDeleted={onBack} onAddInstrument={() => setSheet('instrument')} />}
+      {sheet === 'instrument' && <AddStudent students={students} teachers={teachers.filter((t) => t.active)} presetStudent={student} onClose={() => setSheet(null)} onDone={() => { setSheet(null); reload(); flash('Instrument added — find it on the main list') }} />}
 
-      {toast && (
-        <div className="toast">
-          <span>{toast.msg}</span>
-          {toast.undo && <button className="undo" onClick={runUndo}>Undo</button>}
-        </div>
-      )}
+      {toastNode}
     </div>
-  )
-}
-
-function Dots({ used, total }) {
-  return <div className="dots">{Array.from({ length: total }, (_, i) => <span key={i} className={i < used ? 'on' : ''} />)}</div>
-}
-
-function LessonItem({ l, onEdit }) {
-  return (
-    <button className="lesson" onClick={onEdit}>
-      <span>♪ {fmtDateLong(l.lesson_date)}</span>
-      <span className="pen" aria-hidden>✎</span>
-    </button>
   )
 }
 
@@ -504,15 +481,16 @@ function ExportSheet({ student, pkg, payments, lessons, onClose, flash }) {
   )
 }
 
-function EditSheet({ student, pkg, onClose, reload, onDeleted, onAddInstrument }) {
+function EditSheet({ student, pkg, teachers, onClose, reload, onDeleted, onAddInstrument }) {
   const [name, setName] = useState(student.name)
   const [instrument, setInstrument] = useState(pkg.instrument)
+  const [teacherId, setTeacherId] = useState(pkg.teacher_id || '')
   const [err, setErr] = useState('')
 
   const save = async (e) => {
     e.preventDefault()
     const r1 = await supabase.from('students').update({ name: name.trim() }).eq('id', student.id)
-    const r2 = await supabase.from('packages').update({ instrument: instrument.trim() }).eq('id', pkg.id)
+    const r2 = await supabase.from('packages').update({ instrument: instrument.trim(), teacher_id: teacherId || null }).eq('id', pkg.id)
     if (r1.error || r2.error) return setErr((r1.error || r2.error).message)
     await reload(); onClose()
   }
@@ -533,6 +511,7 @@ function EditSheet({ student, pkg, onClose, reload, onDeleted, onAddInstrument }
       <form onSubmit={save}>
         <label>Student name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
         <label>Instrument<input value={instrument} onChange={(e) => setInstrument(e.target.value)} required /></label>
+        <TeacherSelect teachers={teachers.filter((t) => t.active || t.id === pkg.teacher_id)} value={teacherId} onChange={setTeacherId} />
         {err && <p className="error">{err}</p>}
         <button className="btn primary full">Save changes</button>
       </form>
@@ -544,42 +523,4 @@ function EditSheet({ student, pkg, onClose, reload, onDeleted, onAddInstrument }
   )
 }
 
-function Sheet({ title, onClose, children }) {
-  useEffect(() => {
-    const k = (e) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', k)
-    return () => window.removeEventListener('keydown', k)
-  }, [onClose])
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div className="sheet-head"><h2>{title}</h2><button className="x big" onClick={onClose}>×</button></div>
-        {children}
-      </div>
-    </div>
-  )
-}
-
 // Shows the date as dd/mm/yy; tapping opens the phone's native calendar.
-function DateField({ label, value, onChange }) {
-  const open = (e) => { try { e.currentTarget.showPicker?.() } catch { /* not supported */ } }
-  return (
-    <label>{label}
-      <div className="datefield">
-        <span>{fmtDate(value)}</span>
-        <span className="cal" aria-hidden>📅</span>
-        <input type="date" value={value} max="2099-12-31" onClick={open}
-          onChange={(e) => e.target.value && onChange(e.target.value)} required aria-label={label} />
-      </div>
-    </label>
-  )
-}
-
-function Brand() {
-  return (
-    <div className="brand">
-      <img src="/mark.png" alt="" />
-      <div><b>JAZZ UP!</b><small>Lesson Tracker</small></div>
-    </div>
-  )
-}
