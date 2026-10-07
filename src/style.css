@@ -174,3 +174,13 @@ label.check input { width: 20px; height: 20px; min-height: 0; margin: 0; accent-
 .link { color: var(--ink); text-decoration: underline; text-decoration-color: var(--yellow); text-decoration-thickness: 3px; text-underline-offset: 3px; }
 .center-link { text-decoration: none; }
 input:focus, select:focus, textarea:focus, .datefield:focus-within { border-color: var(--ink); }
+
+/* editable history */
+button.lesson { width: 100%; background: none; border: 0; border-top: 1px solid var(--line); text-align: left; cursor: pointer; color: var(--ink); }
+.group button.lesson:first-of-type { border-top: 0; }
+button.group-head { width: 100%; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; color: var(--ink); }
+.pen { color: var(--ink-3); font-size: 16px; padding: 0 4px; }
+button.lesson:active, button.group-head:active { background: #fff8d6; }
+.hint { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.toast { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.toast .undo { background: var(--yellow); color: var(--ink); border: 0; border-radius: 8px; padding: 6px 12px; font-weight: 700; cursor: pointer; }

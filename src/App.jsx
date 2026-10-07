@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { supabase } from './supabase'
 import { PLANS, todayISO, fmtDate, fmtDateLong, summarize, status, exportText } from './logic'
 
@@ -272,46 +272,98 @@ function PlanPicker({ plan, setPlan, paidOn, setPaidOn }) {
 
 function PackageView({ row, students, onBack, reload }) {
   const { pkg, student, payments, lessons, sum } = row
-  const [sheet, setSheet] = useState(null) // 'lesson' | 'payment' | 'export' | 'edit' | 'instrument'
-  const [toast, setToast] = useState('')
+  const [sheet, setSheet] = useState(null) // 'lesson' | 'payment' | 'export' | 'edit' | 'instrument' | 'editLesson' | 'editPayment'
+  const [toast, setToast] = useState(null) // { msg, undo }
+  const toastTimer = useRef(null)
   const [lessonDate, setLessonDate] = useState(todayISO())
   const [plan, setPlan] = useState(4)
   const [paidOn, setPaidOn] = useState(todayISO())
+  const [editing, setEditing] = useState(null) // the lesson or payment being edited
   const [busy, setBusy] = useState(false)
 
-  const flash = (m) => { setToast(m); setTimeout(() => setToast(''), 2200) }
+  const flash = (msg, undo) => {
+    clearTimeout(toastTimer.current)
+    setToast({ msg, undo })
+    toastTimer.current = setTimeout(() => setToast(null), undo ? 7000 : 2200)
+  }
+  useEffect(() => () => clearTimeout(toastTimer.current), [])
+
+  const runUndo = async () => {
+    const fn = toast?.undo
+    setToast(null)
+    if (!fn) return
+    const { error } = await fn()
+    if (error) return flash(error.message)
+    await reload()
+    flash('Undone')
+  }
+
   const openSheet = (name) => {
     if (name === 'lesson') setLessonDate(todayISO())
-    if (name === 'payment') setPaidOn(todayISO())
+    if (name === 'payment') { setPaidOn(todayISO()); setPlan(4) }
     setSheet(name)
   }
+  const editLesson = (l) => { setEditing(l); setLessonDate(l.lesson_date); setSheet('editLesson') }
+  const editPayment = (p) => { setEditing(p); setPlan(p.plan_lessons); setPaidOn(p.paid_on); setSheet('editPayment') }
 
   const logLesson = async (date) => {
     setBusy(true)
-    const { error } = await supabase.from('lessons').insert({ package_id: pkg.id, lesson_date: date })
+    const { data, error } = await supabase.from('lessons').insert({ package_id: pkg.id, lesson_date: date }).select().single()
     setBusy(false)
     if (error) return flash(error.message)
-    setSheet(null); setLessonDate(todayISO())
+    setSheet(null)
     await reload()
-    flash(`Lesson logged · ${fmtDate(date)}`)
+    flash(`Lesson logged · ${fmtDate(date)}`, () => supabase.from('lessons').delete().eq('id', data.id))
   }
 
   const addPayment = async (e) => {
     e.preventDefault()
     setBusy(true)
-    const { error } = await supabase.from('payments').insert({ package_id: pkg.id, plan_lessons: plan, paid_on: paidOn })
+    const { data, error } = await supabase.from('payments').insert({ package_id: pkg.id, plan_lessons: plan, paid_on: paidOn }).select().single()
     setBusy(false)
     if (error) return flash(error.message)
-    setSheet(null); setPaidOn(todayISO())
+    setSheet(null)
     await reload()
-    flash(`Payment added · ${plan} ${plan === 1 ? 'lesson' : 'lessons'}`)
+    flash(`Payment added · ${plan} ${plan === 1 ? 'lesson' : 'lessons'}`, () => supabase.from('payments').delete().eq('id', data.id))
   }
 
-  const del = async (table, id, what) => {
-    if (!confirm(`Delete this ${what}?`)) return
-    const { error } = await supabase.from(table).delete().eq('id', id)
+  const saveLesson = async (e) => {
+    e.preventDefault()
+    const before = editing
+    setBusy(true)
+    const { error } = await supabase.from('lessons').update({ lesson_date: lessonDate }).eq('id', before.id)
+    setBusy(false)
     if (error) return flash(error.message)
-    await reload(); flash(`${what[0].toUpperCase() + what.slice(1)} deleted`)
+    setSheet(null)
+    await reload()
+    flash(`Lesson moved to ${fmtDate(lessonDate)}`, () => supabase.from('lessons').update({ lesson_date: before.lesson_date }).eq('id', before.id))
+  }
+
+  const savePayment = async (e) => {
+    e.preventDefault()
+    const before = editing
+    setBusy(true)
+    const { error } = await supabase.from('payments').update({ plan_lessons: plan, paid_on: paidOn }).eq('id', before.id)
+    setBusy(false)
+    if (error) return flash(error.message)
+    setSheet(null)
+    await reload()
+    flash('Payment updated', () => supabase.from('payments').update({ plan_lessons: before.plan_lessons, paid_on: before.paid_on }).eq('id', before.id))
+  }
+
+  // Delete without a confirm box; Undo puts the exact row back.
+  const del = async (table, item, what) => {
+    setBusy(true)
+    const { error } = await supabase.from(table).delete().eq('id', item.id)
+    setBusy(false)
+    if (error) return flash(error.message)
+    setSheet(null)
+    await reload()
+    const { id, package_id, created_at } = item
+    const restore = table === 'lessons'
+      ? { id, package_id, created_at, lesson_date: item.lesson_date }
+      : { id, package_id, created_at, plan_lessons: item.plan_lessons, paid_on: item.paid_on }
+    flash(`${what} deleted`, () => supabase.from(table).insert(restore))
   }
 
   // history, newest first, grouped by payment
@@ -346,23 +398,23 @@ function PackageView({ row, students, onBack, reload }) {
         <button className="btn" onClick={() => setSheet('export')}>Send to parent</button>
       </div>
 
-      <h3 className="section">History</h3>
+      <h3 className="section">History <span className="hint">· tap to edit</span></h3>
       {sum.owed.length > 0 && (
         <div className="group owed">
-          <div className="group-head"><b>Not paid yet</b><span>{sum.owed.length} owed</span></div>
-          {[...sum.owed].reverse().map((l) => <LessonItem key={l.id} l={l} onDelete={() => del('lessons', l.id, 'lesson')} />)}
+          <div className="group-head static"><b>Not paid yet</b><span>{sum.owed.length} owed</span></div>
+          {[...sum.owed].reverse().map((l) => <LessonItem key={l.id} l={l} onEdit={() => editLesson(l)} />)}
         </div>
       )}
       {groups.length === 0 && sum.owed.length === 0 && <p className="muted">No payments or lessons yet.</p>}
       {groups.map((g) => (
         <div className="group" key={g.payment.id}>
-          <div className="group-head">
+          <button className="group-head" onClick={() => editPayment(g.payment)}>
             <b>{g.payment.plan_lessons}-lesson plan · paid {fmtDateLong(g.payment.paid_on)}</b>
             <span>{g.lessons.length}/{g.payment.plan_lessons}</span>
-            <button className="x" title="Delete payment" onClick={() => del('payments', g.payment.id, 'payment')}>×</button>
-          </div>
+            <span className="pen" aria-hidden>✎</span>
+          </button>
           <Dots used={g.lessons.length} total={g.payment.plan_lessons} />
-          {[...g.lessons].reverse().map((l) => <LessonItem key={l.id} l={l} onDelete={() => del('lessons', l.id, 'lesson')} />)}
+          {[...g.lessons].reverse().map((l) => <LessonItem key={l.id} l={l} onEdit={() => editLesson(l)} />)}
         </div>
       ))}
 
@@ -374,6 +426,15 @@ function PackageView({ row, students, onBack, reload }) {
           </form>
         </Sheet>
       )}
+      {sheet === 'editLesson' && editing && (
+        <Sheet title="Edit lesson" onClose={() => setSheet(null)}>
+          <form onSubmit={saveLesson}>
+            <DateField label="Lesson date" value={lessonDate} onChange={setLessonDate} />
+            <button className="btn primary full" disabled={busy}>Save</button>
+          </form>
+          <button className="btn danger full" disabled={busy} onClick={() => del('lessons', editing, 'Lesson')}>Delete this lesson</button>
+        </Sheet>
+      )}
       {sheet === 'payment' && (
         <Sheet title="Add payment" onClose={() => setSheet(null)}>
           <form onSubmit={addPayment}>
@@ -383,11 +444,25 @@ function PackageView({ row, students, onBack, reload }) {
           </form>
         </Sheet>
       )}
+      {sheet === 'editPayment' && editing && (
+        <Sheet title="Edit payment" onClose={() => setSheet(null)}>
+          <form onSubmit={savePayment}>
+            <PlanPicker plan={plan} setPlan={setPlan} paidOn={paidOn} setPaidOn={setPaidOn} />
+            <button className="btn primary full" disabled={busy}>Save</button>
+          </form>
+          <button className="btn danger full" disabled={busy} onClick={() => del('payments', editing, 'Payment')}>Delete this payment</button>
+        </Sheet>
+      )}
       {sheet === 'export' && <ExportSheet student={student} pkg={pkg} payments={payments} lessons={lessons} onClose={() => setSheet(null)} flash={flash} />}
       {sheet === 'edit' && <EditSheet student={student} pkg={pkg} onClose={() => setSheet(null)} reload={reload} onDeleted={onBack} onAddInstrument={() => setSheet('instrument')} />}
       {sheet === 'instrument' && <AddStudent students={students} presetStudent={student} onClose={() => setSheet(null)} onDone={() => { setSheet(null); reload(); flash('Instrument added — find it on the main list') }} />}
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast">
+          <span>{toast.msg}</span>
+          {toast.undo && <button className="undo" onClick={runUndo}>Undo</button>}
+        </div>
+      )}
     </div>
   )
 }
@@ -396,12 +471,12 @@ function Dots({ used, total }) {
   return <div className="dots">{Array.from({ length: total }, (_, i) => <span key={i} className={i < used ? 'on' : ''} />)}</div>
 }
 
-function LessonItem({ l, onDelete }) {
+function LessonItem({ l, onEdit }) {
   return (
-    <div className="lesson">
+    <button className="lesson" onClick={onEdit}>
       <span>♪ {fmtDateLong(l.lesson_date)}</span>
-      <button className="x" title="Delete lesson" onClick={onDelete}>×</button>
-    </div>
+      <span className="pen" aria-hidden>✎</span>
+    </button>
   )
 }
 
