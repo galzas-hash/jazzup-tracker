@@ -22,13 +22,14 @@ React 18 + Vite, `@supabase/supabase-js`. No router — screens are switched wit
 
 ## Data model
 - `students` (name) → `packages` (one per instrument; `teacher_id`, `archived`) → `payments` (plan_lessons ∈ {1,4,8,10}, paid_on) and `lessons` (lesson_date, `logged_by` = auth uid)
-- `teachers` (name, email, user_id, active) · `managers` (email)
+- `teachers` (name, email, user_id, active) · `managers` (email, hidden)
 - Balance = paid lessons − lessons taken. Lessons are matched to payments oldest-first, so owed lessons (negative balance) are covered by the next payment.
 - Status colours: red = 0 or owed / no payment, orange = 1 left, green = 2+.
 
 ## Roles & security
 - `is_manager()`, `current_teacher_id()`, `my_role()`, `my_paid_lessons()` — SECURITY DEFINER helpers (advisor warnings about them are intentional; they only describe the caller).
 - Manager: full access to everything.
+- Hidden admin: a manager row with `hidden = true` (Galit). Full access, but not shown in the Team page managers list and can't be reset/removed by regular managers (enforced in the Edge Function).
 - Teacher: reads own packages/students, full CRUD on lessons of own packages, no access to payments (gets paid totals via `my_paid_lessons()`).
 - Logins are email + password only. No email sending is configured (Supabase site URL not set), so there's no self-service "forgot password" — managers reset passwords from the Team page.
 

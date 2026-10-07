@@ -232,11 +232,13 @@ ${isNew ? '\nTip: open the link on your phone and choose "Add to Home Screen".' 
 function Managers({ flash }) {
   const [list, setList] = useState(null)
   const [me, setMe] = useState('')
+  const [meHidden, setMeHidden] = useState(false)
   const [sheet, setSheet] = useState(null) // { type: 'invite' } | { type: 'manage', email } | { type: 'creds', ... }
 
   const load = async () => {
     const res = await callLogin({ action: 'list_managers' })
     setList(res.error ? [] : res.managers)
+    setMeHidden(!!res.meHidden)
   }
   useEffect(() => {
     load()
@@ -247,6 +249,7 @@ function Managers({ flash }) {
     <>
       <h3 className="section">Managers</h3>
       <p className="muted small">Managers see everything: all students, payments and teachers.</p>
+      {meHidden && <p className="hidden-note">🕶️ You're a hidden admin — you have full access, but other managers don't see you in this list.</p>}
       {list === null ? <p className="muted small">Loading…</p> : (
         <ul className="list">
           {list.map((email) => (
