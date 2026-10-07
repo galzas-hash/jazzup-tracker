@@ -7,21 +7,49 @@ import Teachers, { TeacherSelect } from './Teachers'
 
 const INSTRUMENTS = ['Piano', 'Guitar', 'Drums', 'Violin', 'Vocals', 'Bass', 'Ukulele', 'Saxophone']
 
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))])
+
 export default function App() {
   const [session, setSession] = useState(undefined)
   const [role, setRole] = useState(undefined) // 'manager' | 'teacher' | null
+  const [problem, setProblem] = useState(false)
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session))
+    setProblem(false)
+    withTimeout(supabase.auth.getSession(), 8000)
+      .then(({ data }) => setSession(data.session))
+      .catch(() => setProblem(true))
     const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
     return () => data.subscription.unsubscribe()
-  }, [])
+  }, [attempt])
 
   useEffect(() => {
     if (!session) return setRole(undefined)
-    supabase.rpc('my_role').then(({ data }) => setRole(data ?? null))
-  }, [session?.user?.id])
+    setProblem(false)
+    withTimeout(supabase.rpc('my_role'), 10000)
+      .then(({ data, error }) => (error ? setProblem(true) : setRole(data ?? null)))
+      .catch(() => setProblem(true))
+  }, [session?.user?.id, attempt])
 
+  const retry = () => { setRole(undefined); setAttempt((n) => n + 1) }
+  const resetLogin = async () => {
+    try { Object.keys(localStorage).filter((k) => k.startsWith('sb-')).forEach((k) => localStorage.removeItem(k)) } catch { /* ignore */ }
+    window.location.reload()
+  }
+
+  if (problem && (session === undefined || role === undefined))
+    return (
+      <div className="center splash">
+        <div className="card narrow" style={{ textAlign: 'center' }}>
+          <img className="login-logo" src="/logo.png" alt="Jazz Up!" style={{ width: 120, height: 120 }} />
+          <h2>Can't connect right now</h2>
+          <p className="muted">Check your internet connection and try again.</p>
+          <button className="btn primary full" onClick={retry}>Try again</button>
+          <button className="btn full" onClick={resetLogin}>Sign in again</button>
+        </div>
+      </div>
+    )
   if (session === undefined) return <Splash />
   if (!session) return <Login />
   if (role === undefined) return <Splash />
