@@ -208,3 +208,7 @@ button.lesson:active, button.group-head:active { background: #fff8d6; }
 .done { margin-left: 8px; font-size: 12px; font-weight: 700; color: var(--ok); background: var(--ok-bg); padding: 2px 7px; border-radius: 999px; vertical-align: middle; }
 .notice { background: var(--red-bg); color: var(--red); border-radius: 12px; padding: 10px 14px; font-size: 14px; font-weight: 600; margin: -4px 0 12px; }
 .by { color: var(--ink-3); font-size: 13px; }
+
+/* plan picker: number over label so 4 plans fit on a phone */
+.seg button b { display: block; font-size: 18px; line-height: 1.1; }
+.seg button small { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }

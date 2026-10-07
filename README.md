@@ -3,7 +3,7 @@
 Simple lesson & payment tracker for the JazzUp music school.
 
 - Students can have several instruments, each with its own lesson balance
-- Plans: 1, 4 or 8 lessons; lessons are matched to payments oldest-first
+- Plans: 1, 4, 8 or 10 lessons; lessons are matched to payments oldest-first
 - Red = needs payment, amber = 1 lesson left
 - "Send to parent" builds a LINE/WhatsApp-ready message
 

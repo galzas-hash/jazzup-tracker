@@ -19,7 +19,7 @@ React 18 + Vite, `@supabase/supabase-js`. No router — screens are switched wit
 - `public/` — logo, icons (incl. maskable), `manifest.webmanifest`, `sw.js` (no-cache service worker, only for installability)
 
 ## Data model
-- `students` (name) → `packages` (one per instrument; `teacher_id`, `archived`) → `payments` (plan_lessons ∈ {1,4,8}, paid_on) and `lessons` (lesson_date, `logged_by` = auth uid)
+- `students` (name) → `packages` (one per instrument; `teacher_id`, `archived`) → `payments` (plan_lessons ∈ {1,4,8,10}, paid_on) and `lessons` (lesson_date, `logged_by` = auth uid)
 - `teachers` (name, email, user_id, active) · `managers` (email)
 - Balance = paid lessons − lessons taken. Lessons are matched to payments oldest-first, so owed lessons (negative balance) are covered by the next payment.
 - Status colours: red = 0 or owed / no payment, orange = 1 left, green = 2+.

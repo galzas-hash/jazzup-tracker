@@ -1,6 +1,6 @@
 // Pure helpers: balance, FIFO allocation of lessons to payments, export text.
 
-export const PLANS = [1, 4, 8]
+export const PLANS = [1, 4, 8, 10]
 
 export function todayISO() {
   const d = new Date()
@@ -85,7 +85,7 @@ export function exportText(studentName, instrument, payments, lessons) {
   } else {
     if (s.balance < 0) lines.push(`Lessons owed: ${-s.balance} (will be deducted from the next plan)`)
     else lines.push('Lessons left: 0')
-    lines.push('Time to renew — we offer 1, 4 or 8 lesson plans.')
+    lines.push('Time to renew — we offer 1, 4, 8 or 10 lesson plans.')
   }
   lines.push('', 'Thank you! 🙏')
   return lines.join('\n')

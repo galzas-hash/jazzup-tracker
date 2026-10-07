@@ -298,7 +298,7 @@ function PlanPicker({ plan, setPlan, paidOn, setPaidOn }) {
       <div className="seg">
         {PLANS.map((p) => (
           <button type="button" key={p} className={plan === p ? 'on' : ''} onClick={() => setPlan(p)}>
-            {p} {p === 1 ? 'lesson' : 'lessons'}
+            <b>{p}</b><small>{p === 1 ? 'lesson' : 'lessons'}</small>
           </button>
         ))}
       </div>
