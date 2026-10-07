@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { supabase } from './supabase'
 import { PLANS, todayISO, fmtDate, fmtDateLong, summarize, status, exportText } from './logic'
-import { Sheet, DateField, Balance, Dots, LessonItem, Brand, useToast } from './ui'
+import { Sheet, DateField, MultiDatePicker, Balance, Dots, LessonItem, Brand, useToast } from './ui'
 import TeacherApp from './TeacherApp'
+import { cacheGet, cacheSet, cacheClear, localOps } from './cache'
 import Teachers, { TeacherSelect } from './Teachers'
 
 const INSTRUMENTS = ['Piano', 'Guitar', 'Drums', 'Violin', 'Vocals', 'Bass', 'Ukulele', 'Saxophone']
@@ -26,15 +27,23 @@ export default function App() {
 
   useEffect(() => {
     if (!session) return setRole(undefined)
+    const uid = session.user.id
+    const cached = cacheGet('role:' + uid)
+    if (cached) setRole(cached) // open instantly with the last known role, verify below
     setProblem(false)
     withTimeout(supabase.rpc('my_role'), 10000)
-      .then(({ data, error }) => (error ? setProblem(true) : setRole(data ?? null)))
-      .catch(() => setProblem(true))
+      .then(({ data, error }) => {
+        if (error) return cached ? null : setProblem(true)
+        setRole(data ?? null)
+        if (data) cacheSet('role:' + uid, data)
+      })
+      .catch(() => { if (!cached) setProblem(true) })
   }, [session?.user?.id, attempt])
 
   const retry = () => { setRole(undefined); setAttempt((n) => n + 1) }
   const resetLogin = async () => {
     try { Object.keys(localStorage).filter((k) => k.startsWith('sb-')).forEach((k) => localStorage.removeItem(k)) } catch { /* ignore */ }
+    cacheClear()
     window.location.reload()
   }
 
@@ -53,7 +62,7 @@ export default function App() {
   if (session === undefined) return <Splash />
   if (!session) return <Login />
   if (role === undefined) return <Splash />
-  if (role === 'teacher') return <TeacherApp />
+  if (role === 'teacher') return <TeacherApp userId={session.user.id} />
   if (role !== 'manager')
     return (
       <div className="center">
@@ -64,7 +73,7 @@ export default function App() {
         </div>
       </div>
     )
-  return <Tracker />
+  return <Tracker userId={session.user.id} />
 }
 
 function Splash() {
@@ -99,8 +108,11 @@ function Login() {
 
 /* ---------------- main tracker ---------------- */
 
-function Tracker() {
-  const [data, setData] = useState(null)
+function Tracker({ userId }) {
+  const cacheKey = 'data:' + userId
+  const [data, setData] = useState(() => cacheGet(cacheKey))
+  const [statusFilter, setStatusFilter] = useState(null) // null | 'red' | 'amber' | 'ok'
+  const local = useMemo(() => localOps(setData), [])
   const [error, setError] = useState('')
   const [openId, setOpenId] = useState(null)
   const [adding, setAdding] = useState(false)
@@ -122,6 +134,9 @@ function Tracker() {
     setError('')
     setData({ students: st.data, packages: pk.data, payments: py.data, lessons: ls.data, teachers: tc.data })
   }, [])
+
+  // keep the phone's copy up to date so the next open is instant
+  useEffect(() => { if (data) cacheSet(cacheKey, data) }, [data, cacheKey])
 
   useEffect(() => {
     load()
@@ -145,6 +160,7 @@ function Tracker() {
   const rank = { red: 0, amber: 1, ok: 2 }
   const visible = rows
     .filter((r) => r.student && r.pkg.archived === showArchived)
+    .filter((r) => !statusFilter || r.st === statusFilter)
     .filter((r) => teacherFilter === 'all' || (teacherFilter === 'none' ? !r.pkg.teacher_id : r.pkg.teacher_id === teacherFilter))
     .filter((r) => !q || `${r.student.name} ${r.pkg.instrument} ${r.teacher?.name || ''}`.toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => rank[a.st] - rank[b.st] || a.sum.balance - b.sum.balance || a.student.name.localeCompare(b.student.name))
@@ -153,7 +169,7 @@ function Tracker() {
   const open = rows.find((r) => r.pkg.id === openId)
 
   if (showTeachers) return <Teachers teachers={data.teachers} packages={data.packages} onBack={() => setShowTeachers(false)} reload={load} />
-  if (open) return <PackageView row={open} students={data.students} teachers={data.teachers} onBack={() => setOpenId(null)} reload={load} />
+  if (open) return <PackageView row={open} students={data.students} teachers={data.teachers} onBack={() => setOpenId(null)} reload={load} local={local} />
   const activeTeachers = data ? data.teachers.filter((t) => t.active) : []
 
   return (
@@ -170,9 +186,12 @@ function Tracker() {
 
       {data && (
         <div className="summary">
-          <div className="pill red"><b>{counts.red || 0}</b> need payment</div>
-          <div className="pill amber"><b>{counts.amber || 0}</b> 1 lesson left</div>
-          <div className="pill ok"><b>{counts.ok || 0}</b> all good</div>
+          {[['red', 'need payment'], ['amber', '1 lesson left'], ['ok', 'all good']].map(([k, label]) => (
+            <button key={k} className={`pill ${k}${statusFilter === k ? ' on' : ''}${statusFilter && statusFilter !== k ? ' off' : ''}`}
+              onClick={() => setStatusFilter(statusFilter === k ? null : k)}>
+              <b>{counts[k] || 0}</b> {label}
+            </button>
+          ))}
         </div>
       )}
 
@@ -186,6 +205,13 @@ function Tracker() {
           {[{ id: 'all', name: 'All' }, ...activeTeachers, { id: 'none', name: 'No teacher' }].map((t) => (
             <button key={t.id} className={teacherFilter === t.id ? 'on' : ''} onClick={() => setTeacherFilter(t.id)}>{t.name}</button>
           ))}
+        </div>
+      )}
+
+      {statusFilter && (
+        <div className="filter-note">
+          Showing only <b>{{ red: 'need payment', amber: '1 lesson left', ok: 'all good' }[statusFilter]}</b>
+          <button className="link" onClick={() => setStatusFilter(null)}>Show all</button>
         </div>
       )}
 
@@ -309,7 +335,7 @@ function PlanPicker({ plan, setPlan, paidOn, setPaidOn }) {
 
 /* ---------------- package detail ---------------- */
 
-function PackageView({ row, students, teachers, onBack, reload }) {
+function PackageView({ row, students, teachers, onBack, reload, local }) {
   const { pkg, student, teacher, payments, lessons, sum } = row
   const byName = Object.fromEntries(teachers.filter((t) => t.user_id).map((t) => [t.user_id, t.name]))
   const [sheet, setSheet] = useState(null) // 'lesson' | 'payment' | 'export' | 'edit' | 'instrument' | 'editLesson' | 'editPayment'
@@ -329,15 +355,22 @@ function PackageView({ row, students, teachers, onBack, reload }) {
   const editLesson = (l) => { setEditing(l); setLessonDate(l.lesson_date); setSheet('editLesson') }
   const editPayment = (p) => { setEditing(p); setPlan(p.plan_lessons); setPaidOn(p.paid_on); setSheet('editPayment') }
 
-  const logLesson = async (date) => {
+  const sync = () => { reload() } // refresh in the background, don't wait
+
+  const logLessons = async (dates) => {
+    if (!dates.length) return
     setBusy(true)
-    const { data, error } = await supabase.from('lessons').insert({ package_id: pkg.id, lesson_date: date }).select().single()
+    const { data, error } = await supabase.from('lessons').insert(dates.map((d) => ({ package_id: pkg.id, lesson_date: d }))).select()
     setBusy(false)
     if (error) return flash(error.message)
     setSheet(null)
-    await reload()
-    flash(`Lesson logged · ${fmtDate(date)}`, () => supabase.from('lessons').delete().eq('id', data.id))
+    local.add('lessons', data)
+    sync()
+    const ids = data.map((r) => r.id)
+    flash(dates.length === 1 ? `Lesson logged · ${fmtDate(dates[0])}` : `${dates.length} lessons logged`,
+      () => supabase.from('lessons').delete().in('id', ids))
   }
+  const logLesson = (date) => logLessons([date])
 
   const addPayment = async (e) => {
     e.preventDefault()
@@ -346,7 +379,8 @@ function PackageView({ row, students, teachers, onBack, reload }) {
     setBusy(false)
     if (error) return flash(error.message)
     setSheet(null)
-    await reload()
+    local.add('payments', data)
+    sync()
     flash(`Payment added · ${plan} ${plan === 1 ? 'lesson' : 'lessons'}`, () => supabase.from('payments').delete().eq('id', data.id))
   }
 
@@ -354,11 +388,12 @@ function PackageView({ row, students, teachers, onBack, reload }) {
     e.preventDefault()
     const before = editing
     setBusy(true)
-    const { error } = await supabase.from('lessons').update({ lesson_date: lessonDate }).eq('id', before.id)
+    const { data, error } = await supabase.from('lessons').update({ lesson_date: lessonDate }).eq('id', before.id).select().single()
     setBusy(false)
     if (error) return flash(error.message)
     setSheet(null)
-    await reload()
+    local.upd('lessons', data)
+    sync()
     flash(`Lesson moved to ${fmtDate(lessonDate)}`, () => supabase.from('lessons').update({ lesson_date: before.lesson_date }).eq('id', before.id))
   }
 
@@ -366,11 +401,12 @@ function PackageView({ row, students, teachers, onBack, reload }) {
     e.preventDefault()
     const before = editing
     setBusy(true)
-    const { error } = await supabase.from('payments').update({ plan_lessons: plan, paid_on: paidOn }).eq('id', before.id)
+    const { data, error } = await supabase.from('payments').update({ plan_lessons: plan, paid_on: paidOn }).eq('id', before.id).select().single()
     setBusy(false)
     if (error) return flash(error.message)
     setSheet(null)
-    await reload()
+    local.upd('payments', data)
+    sync()
     flash('Payment updated', () => supabase.from('payments').update({ plan_lessons: before.plan_lessons, paid_on: before.paid_on }).eq('id', before.id))
   }
 
@@ -381,7 +417,8 @@ function PackageView({ row, students, teachers, onBack, reload }) {
     setBusy(false)
     if (error) return flash(error.message)
     setSheet(null)
-    await reload()
+    local.del(table, item.id)
+    sync()
     const { id, package_id, created_at } = item
     const restore = table === 'lessons'
       ? { id, package_id, created_at, lesson_date: item.lesson_date, logged_by: item.logged_by }
@@ -413,9 +450,9 @@ function PackageView({ row, students, teachers, onBack, reload }) {
         <button className="btn primary big" disabled={busy} onClick={() => (loggedToday ? openSheet('lesson') : logLesson(todayISO()))}>
           ✓ Lesson today
         </button>
-        <button className="btn" onClick={() => openSheet('lesson')}>Other date</button>
+        <button className="btn" onClick={() => openSheet('lesson')}>Other dates</button>
       </div>
-      {loggedToday && <p className="muted small center-text">A lesson is already logged for today — pick a date to add another.</p>}
+      {loggedToday && <p className="muted small center-text">A lesson is already logged for today — use “Other dates” to add more.</p>}
       <div className="actions two">
         <button className="btn" onClick={() => openSheet('payment')}>+ Payment</button>
         <button className="btn" onClick={() => setSheet('export')}>Send to parent</button>
@@ -442,11 +479,8 @@ function PackageView({ row, students, teachers, onBack, reload }) {
       ))}
 
       {sheet === 'lesson' && (
-        <Sheet title="Log a lesson" onClose={() => setSheet(null)}>
-          <form onSubmit={(e) => { e.preventDefault(); logLesson(lessonDate) }}>
-            <DateField label="Lesson date" value={lessonDate} onChange={setLessonDate} />
-            <button className="btn primary full" disabled={busy}>Log lesson</button>
-          </form>
+        <Sheet title="Log lessons" onClose={() => setSheet(null)}>
+          <MultiDatePicker taken={lessons.map((l) => l.lesson_date)} busy={busy} onSave={logLessons} />
         </Sheet>
       )}
       {sheet === 'editLesson' && editing && (

@@ -93,3 +93,60 @@ export function useToast(reload) {
   )
   return { flash, toastNode: node }
 }
+
+// Calendar for picking one or more lesson dates (used to log past lessons in one go).
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const pad = (n) => String(n).padStart(2, '0')
+const isoOf = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`
+
+export function MultiDatePicker({ taken = [], busy, onSave }) {
+  const today = new Date()
+  const todayIso = isoOf(today.getFullYear(), today.getMonth(), today.getDate())
+  const [ym, setYm] = useState({ y: today.getFullYear(), m: today.getMonth() })
+  const [picked, setPicked] = useState([])
+  const takenSet = new Set(taken)
+
+  const first = new Date(ym.y, ym.m, 1)
+  const offset = (first.getDay() + 6) % 7 // Monday first
+  const days = new Date(ym.y, ym.m + 1, 0).getDate()
+  const cells = [...Array(offset).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)]
+  const isCurrentMonth = ym.y === today.getFullYear() && ym.m === today.getMonth()
+
+  const move = (delta) => setYm(({ y, m }) => {
+    const d = new Date(y, m + delta, 1)
+    return { y: d.getFullYear(), m: d.getMonth() }
+  })
+  const toggle = (iso) => setPicked((p) => (p.includes(iso) ? p.filter((x) => x !== iso) : [...p, iso].sort()))
+
+  return (
+    <div className="mdp">
+      <p className="muted small" style={{ marginTop: 0 }}>Tap every day the student had a lesson. You can move between months.</p>
+      <div className="mdp-head">
+        <button type="button" className="mdp-nav" onClick={() => move(-1)} aria-label="Previous month">‹</button>
+        <b>{MONTH_NAMES[ym.m]} {ym.y}</b>
+        <button type="button" className="mdp-nav" onClick={() => move(1)} disabled={isCurrentMonth} aria-label="Next month">›</button>
+      </div>
+      <div className="mdp-grid">
+        {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <span key={i} className="mdp-dow">{d}</span>)}
+        {cells.map((d, i) => {
+          if (!d) return <span key={i} />
+          const iso = isoOf(ym.y, ym.m, d)
+          const future = iso > todayIso
+          const cls = ['mdp-day', picked.includes(iso) && 'on', takenSet.has(iso) && 'taken', iso === todayIso && 'today'].filter(Boolean).join(' ')
+          return <button type="button" key={i} className={cls} disabled={future} onClick={() => toggle(iso)}>{d}</button>
+        })}
+      </div>
+      <div className="mdp-legend"><span className="mdp-dot" /> already logged</div>
+      {picked.length > 0 && (
+        <div className="mdp-picked">
+          {picked.map((iso) => (
+            <button type="button" key={iso} className="mdp-chip" onClick={() => toggle(iso)}>{fmtDate(iso)} ×</button>
+          ))}
+        </div>
+      )}
+      <button className="btn primary full" disabled={busy || !picked.length} onClick={() => onSave(picked)}>
+        {busy ? 'Saving…' : picked.length ? `Log ${picked.length} lesson${picked.length === 1 ? '' : 's'}` : 'Pick dates'}
+      </button>
+    </div>
+  )
+}

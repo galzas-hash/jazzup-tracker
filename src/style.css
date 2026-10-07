@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@800;900&family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
   --ink: #141414;
@@ -212,3 +211,32 @@ button.lesson:active, button.group-head:active { background: #fff8d6; }
 /* plan picker: number over label so 4 plans fit on a phone */
 .seg button b { display: block; font-size: 18px; line-height: 1.1; }
 .seg button small { display: block; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+
+/* multi-date calendar */
+.mdp-head { display: flex; align-items: center; justify-content: space-between; margin: 4px 0 8px; }
+.mdp-head b { font-size: 17px; }
+.mdp-nav { width: 44px; height: 40px; border-radius: 10px; border: 1.5px solid var(--line); background: #fff; font-size: 22px; line-height: 1; cursor: pointer; }
+.mdp-nav:disabled { opacity: .35; }
+.mdp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.mdp-dow { text-align: center; font-size: 12px; font-weight: 700; color: var(--ink-3); padding: 4px 0; }
+.mdp-day { position: relative; aspect-ratio: 1; border: 0; border-radius: 10px; background: #fff; font-size: 16px; font-weight: 600; cursor: pointer; color: var(--ink); }
+.mdp-day:disabled { background: transparent; color: var(--ink-3); opacity: .45; cursor: default; }
+.mdp-day.today { box-shadow: inset 0 0 0 2px var(--ink); }
+.mdp-day.taken::after { content: ''; position: absolute; left: 50%; bottom: 5px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--ok); }
+.mdp-day.on { background: var(--yellow); box-shadow: inset 0 0 0 2px var(--ink); }
+.mdp-legend { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); margin: 8px 0; }
+.mdp-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); display: inline-block; }
+.mdp-picked { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.mdp-chip { border: 1.5px solid var(--ink); background: var(--yellow); border-radius: 999px; padding: 4px 10px; font-weight: 600; font-size: 14px; cursor: pointer; }
+
+/* clickable status boxes */
+button.pill { border: 2px solid transparent; text-align: left; cursor: pointer; font: inherit; }
+button.pill.on { border-color: currentColor; }
+button.pill.off { opacity: .45; }
+.filter-note { display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: var(--ink-2); margin: -4px 0 10px; }
+.filter-note .link { padding: 0; font-size: 14px; }
+
+/* new version bar */
+.update-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 50; display: flex; justify-content: center; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--ink); color: #fff; padding: calc(10px + env(safe-area-inset-top)) 16px 10px; font-weight: 600; font-size: 15px; box-shadow: 0 4px 16px #0003; }
+.update-bar button { background: var(--yellow); color: var(--ink); border: 0; border-radius: 8px; padding: 7px 14px; font-weight: 800; cursor: pointer; }

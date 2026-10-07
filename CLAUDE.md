@@ -14,6 +14,8 @@ React 18 + Vite, `@supabase/supabase-js`. No router — screens are switched wit
 - `src/TeacherApp.jsx` — teacher view (own students, log/edit/undo lessons only)
 - `src/Teachers.jsx` — "Team" page: teachers (add, login, assign) + managers (invite, reset, remove)
 - `src/ui.jsx` — shared UI: Sheet, DateField (dd/mm/yy over native date input), Balance, LessonItem, Brand, useToast (with Undo)
+- `src/cache.js` — localStorage cache (data + role per user) so the app opens instantly; `localOps` for in-place updates after writes
+- `src/UpdateBanner.jsx` — compares `__BUILD_ID__` with `/version.json` (emitted by a plugin in `vite.config.js`) and shows a "Reload" bar when a new version is live
 - `src/logic.js` — balance + FIFO matching of lessons to payments, parent message text, date formatting
 - `supabase/functions/teacher-login/index.ts` — Edge Function (manager-only) that creates/resets/removes teacher and manager logins via the admin API and returns a generated password
 - `public/` — logo, icons (incl. maskable), `manifest.webmanifest`, `sw.js` (no-cache service worker, only for installability)
@@ -39,6 +41,11 @@ React 18 + Vite, `@supabase/supabase-js`. No router — screens are switched wit
 
 ## Ideas parked for later
 - Monthly report for the manager (discussed, postponed). Would need a price list per plan to show income.
+
+## Performance notes
+- After a write, the screen updates from the returned row (`localOps`) and a full refresh runs in the background — never `await reload()` after a write.
+- Data and role are cached on the device and shown immediately on open, then refreshed.
+- Lesson logging uses `MultiDatePicker` (tap several days) — handy for onboarding old notes.
 
 ## Working notes
 - This sandbox can't reach Supabase/Vercel directly; use the Supabase/Vercel MCP tools. DB checks: run SQL with `set local role authenticated` + `request.jwt.claims` inside a rolled-back transaction.

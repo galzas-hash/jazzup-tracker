@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabase'
 import { todayISO, fmtDate, status } from './logic'
-import { Sheet, DateField, Balance, LessonItem, Brand, useToast } from './ui'
+import { Sheet, DateField, MultiDatePicker, Balance, LessonItem, Brand, useToast } from './ui'
+import { cacheGet, cacheSet, localOps } from './cache'
 
 // What a teacher sees: only their own students, lessons left, and logging lessons.
-export default function TeacherApp() {
-  const [data, setData] = useState(null)
+export default function TeacherApp({ userId }) {
+  const cacheKey = 'tdata:' + userId
+  const [data, setData] = useState(() => cacheGet(cacheKey))
+  const local = useMemo(() => localOps(setData), [])
   const [error, setError] = useState('')
   const [openId, setOpenId] = useState(null)
   const [q, setQ] = useState('')
@@ -23,6 +26,7 @@ export default function TeacherApp() {
     setError('')
     setData({ me: me.data, students: st.data, packages: pk.data, lessons: ls.data, paid: paid.data })
   }, [])
+  useEffect(() => { if (data) cacheSet(cacheKey, data) }, [data, cacheKey])
 
   useEffect(() => {
     load()
@@ -47,7 +51,7 @@ export default function TeacherApp() {
   }, [data])
 
   const open = rows.find((r) => r.pkg.id === openId)
-  if (open) return <TeacherStudent row={open} onBack={() => setOpenId(null)} reload={load} />
+  if (open) return <TeacherStudent row={open} onBack={() => setOpenId(null)} reload={load} local={local} />
 
   const visible = rows.filter((r) => !q || `${r.student.name} ${r.pkg.instrument}`.toLowerCase().includes(q.toLowerCase()))
   const today = todayISO()
@@ -93,7 +97,7 @@ export default function TeacherApp() {
   )
 }
 
-function TeacherStudent({ row, onBack, reload }) {
+function TeacherStudent({ row, onBack, reload, local }) {
   const { pkg, student, lessons, sum, paid } = row
   const [sheet, setSheet] = useState(null) // 'lesson' | 'editLesson'
   const [lessonDate, setLessonDate] = useState(todayISO())
@@ -105,24 +109,30 @@ function TeacherStudent({ row, onBack, reload }) {
   const st = status(sum.balance, paid > 0)
   const sorted = [...lessons].sort((a, b) => b.lesson_date.localeCompare(a.lesson_date))
 
-  const logLesson = async (date) => {
+  const logLessons = async (dates) => {
+    if (!dates.length) return
     setBusy(true)
-    const { data, error } = await supabase.from('lessons').insert({ package_id: pkg.id, lesson_date: date }).select().single()
+    const { data, error } = await supabase.from('lessons').insert(dates.map((d) => ({ package_id: pkg.id, lesson_date: d }))).select()
     setBusy(false)
     if (error) return flash(error.message)
     setSheet(null)
-    await reload()
-    flash(`Lesson logged · ${fmtDate(date)}`, () => supabase.from('lessons').delete().eq('id', data.id))
+    local.add('lessons', data)
+    reload()
+    const ids = data.map((r) => r.id)
+    flash(dates.length === 1 ? `Lesson logged · ${fmtDate(dates[0])}` : `${dates.length} lessons logged`,
+      () => supabase.from('lessons').delete().in('id', ids))
   }
+  const logLesson = (date) => logLessons([date])
   const saveLesson = async (e) => {
     e.preventDefault()
     const before = editing
     setBusy(true)
-    const { error } = await supabase.from('lessons').update({ lesson_date: lessonDate }).eq('id', before.id)
+    const { data, error } = await supabase.from('lessons').update({ lesson_date: lessonDate }).eq('id', before.id).select().single()
     setBusy(false)
     if (error) return flash(error.message)
     setSheet(null)
-    await reload()
+    local.upd('lessons', data)
+    reload()
     flash(`Lesson moved to ${fmtDate(lessonDate)}`, () => supabase.from('lessons').update({ lesson_date: before.lesson_date }).eq('id', before.id))
   }
   const deleteLesson = async () => {
@@ -132,7 +142,8 @@ function TeacherStudent({ row, onBack, reload }) {
     setBusy(false)
     if (error) return flash(error.message)
     setSheet(null)
-    await reload()
+    local.del('lessons', item.id)
+    reload()
     const { id, package_id, created_at, lesson_date, logged_by } = item
     flash('Lesson deleted', () => supabase.from('lessons').insert({ id, package_id, created_at, lesson_date, logged_by }))
   }
@@ -152,12 +163,12 @@ function TeacherStudent({ row, onBack, reload }) {
       {st === 'red' && <p className="notice">{sum.balance < 0 ? `${-sum.balance} lesson${sum.balance === -1 ? '' : 's'} not paid yet.` : 'No paid lessons left.'} Please remind the parent to pay.</p>}
 
       <div className="actions">
-        <button className="btn primary big" disabled={busy} onClick={() => (loggedToday ? (setLessonDate(todayISO()), setSheet('lesson')) : logLesson(todayISO()))}>
+        <button className="btn primary big" disabled={busy} onClick={() => (loggedToday ? setSheet('lesson') : logLesson(todayISO()))}>
           ✓ Lesson today
         </button>
-        <button className="btn" onClick={() => { setLessonDate(todayISO()); setSheet('lesson') }}>Other date</button>
+        <button className="btn" onClick={() => setSheet('lesson')}>Other dates</button>
       </div>
-      {loggedToday && <p className="muted small center-text">A lesson is already logged for today — pick a date to add another.</p>}
+      {loggedToday && <p className="muted small center-text">A lesson is already logged for today — use “Other dates” to add more.</p>}
 
       <h3 className="section">Lessons <span className="hint">· tap to edit</span></h3>
       {sorted.length === 0 ? <p className="muted">No lessons yet.</p> : (
@@ -167,11 +178,8 @@ function TeacherStudent({ row, onBack, reload }) {
       )}
 
       {sheet === 'lesson' && (
-        <Sheet title="Log a lesson" onClose={() => setSheet(null)}>
-          <form onSubmit={(e) => { e.preventDefault(); logLesson(lessonDate) }}>
-            <DateField label="Lesson date" value={lessonDate} onChange={setLessonDate} />
-            <button className="btn primary full" disabled={busy}>Log lesson</button>
-          </form>
+        <Sheet title="Log lessons" onClose={() => setSheet(null)}>
+          <MultiDatePicker taken={lessons.map((l) => l.lesson_date)} busy={busy} onSave={logLessons} />
         </Sheet>
       )}
       {sheet === 'editLesson' && editing && (
